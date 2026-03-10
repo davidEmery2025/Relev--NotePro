@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RELEVÉ NOTE PRO - LMD GABON + SCAN</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700;800&display=swap');
+        
+        :root {
+            --bg-deep: #060912;
+            --accent: #3b82f6;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background: var(--bg-deep);
+            color: #f8fafc;
+            -webkit-tap-highlight-color: transparent;
+            overflow-x: hidden;
+        }
+
+        .glass {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .slide-up {
+            animation: slideUp 0.5s ease-out forwards;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .input-focus:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white; color: black; }
+            .glass { background: white; border: 1px solid #eee; backdrop-filter: none; }
+        }
+
+        .btn-cycle-add {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-cycle-add:hover {
+            transform: translateY(-5px);
+            filter: brightness(1.1);
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
+        }
+        .btn-cycle-add:active {
+            transform: scale(0.95);
+        }
+
+        /* Loading Spinner */
+        .loader {
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .error-shake {
+            animation: shake 0.4s ease-in-out;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            75% { transform: translateX(8px); }
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <!-- MODAL DE SCAN -->
+    <div id="scan-modal" class="fixed inset-0 z-[60] hidden flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+        <div class="glass max-w-lg w-full rounded-[2.5rem] p-8 text-center slide-up">
+            <div id="scan-init-view">
+                <div class="w-20 h-20 bg-blue-600/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <i class="fas fa-camera text-3xl text-blue-500"></i>
+                </div>
+                <h2 class="text-2xl font-bold mb-2">Scanner un Relevé</h2>
+                <p class="text-slate-400 text-sm mb-8">Prenez en photo votre relevé. L'IA extraira automatiquement vos notes et UEs.</p>
+                
+                <input type="file" id="file-input" accept="image/*" class="hidden" onchange="processImage(this)">
+                <label for="file-input" class="block w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl cursor-pointer transition-all mb-4">
+                    Sélectionner la photo
+                </label>
+                <button onclick="closeScanModal()" class="text-slate-500 font-bold text-sm">Annuler</button>
+            </div>
+
+            <div id="scan-loading-view" class="hidden py-10">
+                <div class="loader mx-auto mb-6"></div>
+                <h3 class="text-xl font-bold mb-2">Analyse en cours...</h3>
+                <p class="text-slate-400 text-sm animate-pulse">Extraction des données par IA (Gemini)...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ECRAN DE CONNEXION -->
+    <div id="login-screen" class="flex items-center justify-center min-h-screen p-4">
+        <div class="glass p-10 rounded-[3rem] w-full max-w-md border border-blue-500/20 text-center shadow-2xl slide-up">
+            <div class="inline-flex items-center justify-center w-24 h-24 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl mb-8 shadow-2xl shadow-blue-500/30">
+                <i class="fas fa-graduation-cap text-5xl text-white"></i>
+            </div>
+            <h1 class="text-3xl font-extrabold tracking-tighter mb-2">RELEVÉ-NOTE <span class="text-blue-500">PRO</span></h1>
+            <p class="text-slate-400 mb-8 text-sm">Gestion LMD : Licence • Master • Doctorat</p>
+
+            <form id="login-form" class="text-left space-y-5">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase ml-2">Nom de l'étudiant</label>
+                    <input type="text" id="username" placeholder="Ex: ONDO David" required class="w-full px-6 py-4 bg-slate-900/50 border border-slate-800 rounded-2xl text-white outline-none input-focus transition-all">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase ml-2">Mot de passe</label>
+                    <input type="password" id="password" placeholder="••••••••" required class="w-full px-6 py-4 bg-slate-900/50 border border-slate-800 rounded-2xl text-white outline-none input-focus transition-all">
+                </div>
+                <p id="error-msg" class="hidden text-red-500 text-[11px] font-bold text-center uppercase tracking-widest"></p>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all shadow-xl shadow-blue-900/40 transform active:scale-95">
+                    Ouvrir ma Session
+                </button>
+            </form>
+            <p class="mt-6 text-[10px] text-slate-500 italic">Nouveau ? Saisissez un nom et mot de passe pour créer votre espace.</p>
+        </div>
+    </div>
+
+    <!-- DASHBOARD PRINCIPAL -->
+    <div id="dashboard" class="hidden opacity-0 transition-opacity duration-500">
+        <nav class="glass sticky top-0 z-50 px-6 py-4 flex justify-between items-center border-b border-white/5">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-gradient-to-tr from-blue-600 to-blue-400 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+                    <i class="fas fa-university text-white text-sm"></i>
+                </div>
+                <span class="font-black text-xl tracking-tighter hidden sm:block">NT-PRO <span class="text-blue-500">GABON</span></span>
+            </div>
+            
+            <div class="flex items-center gap-2 no-print">
+                <button onclick="openScanModal()" class="p-3 text-blue-400 hover:bg-blue-400/10 rounded-xl transition" title="Scanner un relevé">
+                    <i class="fas fa-qrcode text-xl"></i>
+                </button>
+                <button onclick="exportCSV()" class="p-3 text-slate-400 hover:text-emerald-400 transition" title="Export Excel/CSV">
+                    <i class="fas fa-file-csv text-xl"></i>
+                </button>
+                <button onclick="downloadPDF()" class="p-3 text-slate-400 hover:text-red-400 transition" title="Télécharger PDF">
+                    <i class="fas fa-file-pdf text-xl"></i>
+                </button>
+                <button id="logout-btn" class="ml-2 p-3 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition">
+                    <i class="fas fa-power-off"></i>
+                </button>
+            </div>
+        </nav>
+
+        <main id="releve-container" class="max-w-6xl mx-auto px-4 py-8 pb-32">
+            
+            <div id="pdf-header" class="hidden text-center mb-10 border-b-4 border-blue-600 pb-6">
+                <h1 class="text-3xl font-black uppercase tracking-tighter">Relevé de Cursus Universitaire</h1>
+                <p id="display-name" class="text-2xl font-bold text-blue-600 mt-2"></p>
+                <p class="text-sm text-slate-500 italic mt-1">Conformité Système LMD Gabon</p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12 no-print">
+                <div class="lg:col-span-2 glass p-8 rounded-[2.5rem] relative overflow-hidden">
+                    <div class="flex justify-between items-start mb-6">
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Moyenne Cumulative</p>
+                            <h2 id="moyenne-globale" class="text-5xl font-black">--</h2>
+                            <span id="mention-globale" class="inline-block mt-2 text-[10px] font-bold px-3 py-1 bg-blue-500/10 text-blue-400 rounded-full">EN ATTENTE</span>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[10px] font-bold text-slate-500 uppercase">Progression Crédits</p>
+                            <p class="text-2xl font-black text-emerald-400"><span id="credits-globaux">0</span> / <span id="credit-target">180</span></p>
+                        </div>
+                    </div>
+                    <div class="h-40 w-full">
+                        <canvas id="progressionChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="glass p-8 rounded-[2.5rem] flex flex-col justify-between">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 block">Année de Début</label>
+                        <select id="year-selector" onchange="handleYearChange()" class="w-full bg-slate-900 border border-slate-800 text-white font-bold rounded-2xl px-5 py-4 outline-none input-focus transition-all">
+                        </select>
+                    </div>
+                    <div class="mt-6">
+                        <div class="flex justify-between mb-2">
+                            <span class="text-[10px] font-bold text-slate-500 uppercase">Avancement Global</span>
+                            <span id="progress-percent" class="text-[10px] font-bold text-blue-400">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden">
+                            <div id="credit-progress-bar" class="bg-blue-600 h-full transition-all duration-1000" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TOUCHES D'AJOUT -->
+            <div class="fixed bottom-8 left-1/2 -translate-x-1/2 z-40 no-print flex gap-4 p-3 glass rounded-[2.5rem] shadow-2xl border-white/10 ring-1 ring-white/20 backdrop-blur-3xl">
+                <button onclick="addNewYear('Licence')" class="btn-cycle-add flex flex-col items-center justify-center gap-1 w-20 h-20 bg-gradient-to-br from-blue-600 to-blue-800 rounded-3xl text-white shadow-lg">
+                    <i class="fas fa-award text-xl"></i>
+                    <span class="text-[9px] font-black uppercase tracking-tighter">Licence</span>
+                </button>
+                <button onclick="addNewYear('Master')" class="btn-cycle-add flex flex-col items-center justify-center gap-1 w-20 h-20 bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-3xl text-white shadow-lg">
+                    <i class="fas fa-scroll text-xl"></i>
+                    <span class="text-[9px] font-black uppercase tracking-tighter">Master</span>
+                </button>
+                <button onclick="addNewYear('Doctorat')" class="btn-cycle-add flex flex-col items-center justify-center gap-1 w-20 h-20 bg-gradient-to-br from-purple-600 to-purple-800 rounded-3xl text-white shadow-lg">
+                    <i class="fas fa-vial text-xl"></i>
+                    <span class="text-[9px] font-black uppercase tracking-tighter">Doctorat</span>
+                </button>
+            </div>
+
+            <div id="years-list" class="space-y-8"></div>
+
+        </main>
+    </div>
+
+    <script>
+        const apiKey = ""; // La clé est injectée par l'environnement
+        let academicYears = [];
+        let myChart = null;
+
+        function startApp() {
+            const user = localStorage.getItem('wt_user');
+            if(!user) return;
+
+            // Charger les données de l'utilisateur spécifique
+            const storedData = localStorage.getItem(`wt_data_${user}`);
+            academicYears = storedData ? JSON.parse(storedData) : [];
+
+            document.getElementById('login-screen').classList.add('hidden');
+            const dashboard = document.getElementById('dashboard');
+            dashboard.classList.remove('hidden');
+            setTimeout(() => dashboard.classList.add('opacity-100'), 50);
+            document.getElementById('display-name').innerText = user;
+            initYearSelector();
+            initChart();
+            renderUI();
+        }
+
+        // --- AUTH LOGIC ---
+
+        document.getElementById('login-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const user = document.getElementById('username').value.trim();
+            const pass = document.getElementById('password').value;
+            const errorEl = document.getElementById('error-msg');
+            const loginBox = document.querySelector('#login-screen .glass');
+
+            if(!user || !pass) return;
+
+            const storedPass = localStorage.getItem(`wt_pass_${user}`);
+
+            if(!storedPass) {
+                // Inscription locale
+                localStorage.setItem(`wt_pass_${user}`, pass);
+                localStorage.setItem('wt_user', user);
+                startApp();
+            } else {
+                // Vérification mot de passe
+                if(storedPass === pass) {
+                    localStorage.setItem('wt_user', user);
+                    startApp();
+                } else {
+                    errorEl.innerText = "MOT DE PASSE INCORRECT";
+                    errorEl.classList.remove('hidden');
+                    loginBox.classList.add('error-shake');
+                    setTimeout(() => loginBox.classList.remove('error-shake'), 400);
+                }
+            }
+        });
+
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            if(confirm("Voulez-vous fermer votre session ?")) { 
+                localStorage.removeItem('wt_user'); 
+                location.reload(); 
+            }
+        });
+
+        // --- FONCTIONS SCAN ---
+
+        function openScanModal() {
+            document.getElementById('scan-modal').classList.remove('hidden');
+            document.getElementById('scan-init-view').classList.remove('hidden');
+            document.getElementById('scan-loading-view').classList.add('hidden');
+        }
+
+        function closeScanModal() {
+            document.getElementById('scan-modal').classList.add('hidden');
+        }
+
+        async function processImage(input) {
+            if (!input.files || !input.files[0]) return;
+            
+            const file = input.files[0];
+            const reader = new FileReader();
+
+            document.getElementById('scan-init-view').classList.add('hidden');
+            document.getElementById('scan-loading-view').classList.remove('hidden');
+
+            reader.onload = async (e) => {
+                const base64Image = e.target.result.split(',')[1];
+                
+                const prompt = "Analyse ce relevé de notes. Extrais : 1. Le nom de l'étudiant. 2. Le cycle (Licence, Master ou Doctorat). 3. Pour chaque matière : son nom, le nombre de crédits (souvent entre 2 et 6) et la note obtenue. Réponds UNIQUEMENT avec un objet JSON structuré comme ceci : { \"studentName\": \"...\", \"cycle\": \"Licence\", \"semester\": 1, \"subjects\": [{ \"name\": \"...\", \"cr\": 3, \"note\": 12.5 }] }";
+
+                try {
+                    const result = await callGeminiAI(prompt, base64Image);
+                    if (result) {
+                        applyScanResults(result);
+                        closeScanModal();
+                    }
+                } catch (error) {
+                    console.error(error);
+                    alert("Erreur lors de l'analyse du document. Veuillez réessayer.");
+                    document.getElementById('scan-init-view').classList.remove('hidden');
+                    document.getElementById('scan-loading-view').classList.add('hidden');
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function callGeminiAI(prompt, base64Data) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            
+            const payload = {
+                contents: [{
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: "image/png", data: base64Data } }
+                    ]
+                }],
+                generationConfig: {
+                    responseMimeType: "application/json"
+                }
+            };
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+            const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            return textResult ? JSON.parse(textResult) : null;
+        }
+
+        function applyScanResults(data) {
+            const cycle = data.cycle || 'Licence';
+            const baseLabel = document.getElementById('year-selector').value;
+            const baseYear = parseInt(baseLabel.split('-')[0]);
+            
+            const newYear = {
+                id: Date.now(),
+                cycle: cycle,
+                label: `${cycle} ${academicYears.filter(y => y.cycle === cycle).length + 1}`,
+                session: `${baseYear + academicYears.length}-${baseYear + academicYears.length + 1}`,
+                semestres: [
+                    { nom: "Semestre 1", matieres: data.subjects.map(s => ({ nom: s.name, cr: s.cr || 3, note: s.note })) },
+                    { nom: "Semestre 2", matieres: [] }
+                ]
+            };
+
+            academicYears.push(newYear);
+            renderUI();
+            saveData();
+        }
+
+        // --- CORE LOGIC ---
+
+        function initYearSelector() {
+            const select = document.getElementById('year-selector');
+            const currentYear = new Date().getFullYear();
+            const user = localStorage.getItem('wt_user');
+            const storedBase = localStorage.getItem(`wt_base_${user}`);
+            select.innerHTML = '';
+            for(let i = -5; i < 5; i++) {
+                const y = currentYear + i;
+                const label = `${y}-${y+1}`;
+                const opt = document.createElement('option');
+                opt.value = label;
+                opt.innerText = label;
+                if(storedBase ? label === storedBase : label === `${currentYear}-${currentYear+1}`) opt.selected = true;
+                select.appendChild(opt);
+            }
+        }
+
+        function addNewYear(cycle) {
+            const limits = { 'Licence': 3, 'Master': 2, 'Doctorat': 3 };
+            const currentInCycle = academicYears.filter(y => y.cycle === cycle).length;
+            if(currentInCycle >= limits[cycle]) {
+                alert(`Le cycle ${cycle} est limité à ${limits[cycle]} ans.`);
+                return;
+            }
+            const baseLabel = document.getElementById('year-selector').value;
+            const startYear = parseInt(baseLabel.split('-')[0]) + academicYears.length;
+            const newYear = {
+                id: Date.now(),
+                cycle,
+                label: `${cycle} ${currentInCycle + 1}`,
+                session: `${startYear}-${startYear+1}`,
+                semestres: [
+                    { nom: "Semestre 1", matieres: [{ nom: "UE Fondamentale 1", cr: 6, note: "" }] },
+                    { nom: "Semestre 2", matieres: [{ nom: "UE Fondamentale 2", cr: 6, note: "" }] }
+                ]
+            };
+            academicYears.push(newYear);
+            renderUI();
+            saveData();
+        }
+
+        function handleYearChange() {
+            const user = localStorage.getItem('wt_user');
+            const baseLabel = document.getElementById('year-selector').value;
+            localStorage.setItem(`wt_base_${user}`, baseLabel);
+            const baseYear = parseInt(baseLabel.split('-')[0]);
+            academicYears.forEach((y, i) => {
+                y.session = `${baseYear + i}-${baseYear + i + 1}`;
+            });
+            renderUI();
+            saveData();
+        }
+
+        function calculateMoyenne(items) {
+            let pts = 0, crs = 0;
+            items.forEach(i => {
+                if(i.note !== "" && !isNaN(i.note)) {
+                    pts += (parseFloat(i.note) * i.cr);
+                    crs += i.cr;
+                }
+            });
+            return crs > 0 ? (pts / crs) : null;
+        }
+
+        function updateMatiere(yearId, sIdx, mIdx, field, val, inputElement = null) {
+            const year = academicYears.find(y => y.id === yearId);
+            const mat = year.semestres[sIdx].matieres[mIdx];
+            
+            if(field === 'note') {
+                mat.note = val === "" ? "" : parseFloat(val);
+                if(inputElement) {
+                    inputElement.className = `w-14 bg-slate-900 border border-slate-700 rounded-xl py-2 text-center text-sm font-black outline-none transition-all input-focus ${getNoteClass(mat.note)}`;
+                }
+                updateLiveUI(yearId, sIdx);
+                updateStats();
+            } else {
+                mat[field] = val;
+            }
+            saveData();
+        }
+
+        function updateLiveUI(yearId, sIdx) {
+            const year = academicYears.find(y => y.id === yearId);
+            const sem = year.semestres[sIdx];
+            const semMoy = calculateMoyenne(sem.matieres);
+            const semDisplay = document.getElementById(`sem-moy-${yearId}-${sIdx}`);
+            
+            if(semDisplay) {
+                semDisplay.innerText = semMoy !== null ? semMoy.toFixed(2) : '--';
+                semDisplay.className = `font-black ${getNoteClass(semMoy)}`;
+            }
+
+            const isS1Complet = year.semestres[0].matieres.some(m => m.note !== "");
+            const isS2Complet = year.semestres[1].matieres.some(m => m.note !== "");
+            const yearDisplay = document.getElementById(`year-moy-${yearId}`);
+            
+            if(isS1Complet && isS2Complet) {
+                const yearMoy = calculateMoyenne(year.semestres.flatMap(s => s.matieres));
+                yearDisplay.innerText = yearMoy ? yearMoy.toFixed(2) + "/20" : '--/20';
+                yearDisplay.className = `text-xl font-black ${yearMoy >= 10 ? 'text-green-400' : 'text-red-400'}`;
+            } else {
+                yearDisplay.innerText = "--/20";
+                yearDisplay.className = "text-xl font-black text-slate-600";
+            }
+        }
+
+        function getNoteClass(n) {
+            if(n === "" || isNaN(n) || n === null) return "text-slate-500";
+            if(n < 6) return "text-red-400";
+            if(n < 10) return "text-amber-400";
+            return "text-emerald-400";
+        }
+
+        function updateStats() {
+            let totalPts = 0, totalCr = 0, acquiredCr = 0;
+            let cycleMax = 180;
+            const labels = [];
+            const dataPts = [];
+
+            academicYears.forEach(y => {
+                if(y.cycle === 'Master') cycleMax = 120;
+                if(y.cycle === 'Doctorat') cycleMax = 180;
+                
+                const yearMoy = calculateMoyenne(y.semestres.flatMap(s => s.matieres));
+
+                y.semestres.forEach(s => {
+                    const semMoy = calculateMoyenne(s.matieres);
+                    s.matieres.forEach(m => {
+                        if(m.note !== "" && !isNaN(m.note)) {
+                            totalPts += (m.note * m.cr);
+                            totalCr += m.cr;
+                            if(m.note >= 10 || (m.note >= 6 && (semMoy >= 10 || yearMoy >= 10))) {
+                                acquiredCr += m.cr;
+                            }
+                        }
+                    });
+                });
+
+                if(yearMoy) {
+                    labels.push(y.label);
+                    dataPts.push(yearMoy.toFixed(2));
+                }
+            });
+
+            const globalMoy = totalCr > 0 ? (totalPts / totalCr).toFixed(2) : null;
+            document.getElementById('moyenne-globale').innerText = globalMoy ? globalMoy + "/20" : "--";
+            document.getElementById('mention-globale').innerText = getMention(globalMoy);
+            document.getElementById('credits-globaux').innerText = acquiredCr;
+            document.getElementById('credit-target').innerText = cycleMax;
+            
+            const progress = Math.min(100, (acquiredCr / cycleMax) * 100);
+            document.getElementById('credit-progress-bar').style.width = `${progress}%`;
+            document.getElementById('progress-percent').innerText = Math.round(progress) + "%";
+            updateChart(labels, dataPts);
+        }
+
+        function renderUI() {
+            const container = document.getElementById('years-list');
+            container.innerHTML = academicYears.map(year => {
+                const yearMoy = calculateMoyenne(year.semestres.flatMap(s => s.matieres));
+                
+                return `
+                <div class="glass rounded-[2.5rem] overflow-hidden slide-up">
+                    <div class="p-6 bg-white/5 flex flex-wrap justify-between items-center border-b border-white/5 gap-4">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-2xl bg-blue-600/10 flex items-center justify-center text-blue-500 font-bold">
+                                ${year.cycle[0]}
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-lg">${year.label}</h3>
+                                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">${year.session}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-6">
+                            <div class="text-right">
+                                <p class="text-[10px] font-bold text-slate-500 uppercase">Moyenne Annuelle</p>
+                                <p id="year-moy-${year.id}" class="text-xl font-black ${yearMoy !== null ? (yearMoy >= 10 ? 'text-green-400' : 'text-red-400') : 'text-slate-600'}">
+                                    ${yearMoy !== null ? yearMoy.toFixed(2) + "/20" : '--/20'}
+                                </p>
+                            </div>
+                            <button onclick="deleteYear(${year.id})" class="no-print w-10 h-10 rounded-xl hover:bg-red-500/20 text-slate-500 hover:text-red-500 transition flex items-center justify-center">
+                                <i class="fas fa-trash-alt text-sm"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/5">
+                        ${year.semestres.map((sem, sIdx) => {
+                            const semMoy = calculateMoyenne(sem.matieres);
+                            return `
+                            <div class="p-6">
+                                <div class="flex justify-between items-center mb-6">
+                                    <div>
+                                        <h4 class="text-xs font-black text-slate-400 uppercase tracking-widest">${sem.nom}</h4>
+                                        <p class="text-[9px] font-bold text-slate-500">Moyenne: <span id="sem-moy-${year.id}-${sIdx}" class="font-black ${getNoteClass(semMoy)}">${semMoy !== null ? semMoy.toFixed(2) : '--'}</span></p>
+                                    </div>
+                                    <button onclick="addUE(${year.id}, ${sIdx})" class="no-print text-[10px] font-bold text-blue-500 hover:text-blue-400 uppercase">+ Ajouter UE</button>
+                                </div>
+                                <div class="space-y-4">
+                                    ${sem.matieres.map((m, mIdx) => `
+                                        <div class="flex items-center gap-3 group">
+                                            <input type="text" value="${m.nom}" onchange="updateMatiere(${year.id}, ${sIdx}, ${mIdx}, 'nom', this.value)" 
+                                                class="flex-1 bg-transparent text-sm font-semibold outline-none border-b border-transparent focus:border-blue-500/50 py-1 transition-all">
+                                            <div class="flex items-center gap-2">
+                                                <input type="number" value="${m.cr}" onchange="updateMatiere(${year.id}, ${sIdx}, ${mIdx}, 'cr', parseInt(this.value))" 
+                                                    class="w-8 bg-slate-900 border border-slate-800 rounded-lg text-center text-[10px] py-1 text-slate-400">
+                                                <input type="number" step="0.5" value="${m.note}" oninput="updateMatiere(${year.id}, ${sIdx}, ${mIdx}, 'note', this.value, this)"
+                                                    class="w-14 bg-slate-900 border border-slate-700 rounded-xl py-2 text-center text-sm font-black outline-none transition-all input-focus ${getNoteClass(m.note)}">
+                                                <button onclick="removeUE(${year.id}, ${sIdx}, ${mIdx})" class="no-print opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-500 p-2 transition-all">
+                                                    <i class="fas fa-trash-can text-xs"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>`;
+            }).join('');
+            updateStats();
+        }
+
+        function getMention(moy) {
+            if(!moy) return "PAS DE DONNÉES";
+            const m = parseFloat(moy);
+            if(m < 10) return "AJOURNÉ";
+            if(m < 12) return "PASSABLE";
+            if(m < 14) return "ASSEZ BIEN";
+            if(m < 16) return "BIEN";
+            return "TRÈS BIEN";
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('progressionChart').getContext('2d');
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: 'Moyenne', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.4, borderWidth: 3, pointRadius: 4, pointBackgroundColor: '#3b82f6' }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 20, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b', font: { size: 10 } } }, x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } } } }
+            });
+        }
+
+        function updateChart(labels, data) {
+            if(!myChart) return;
+            myChart.data.labels = labels;
+            myChart.data.datasets[0].data = data;
+            myChart.update();
+        }
+
+        function exportCSV() {
+            let csv = "Cycle,Annee,Semestre,UE,Credit,Note\n";
+            academicYears.forEach(y => { y.semestres.forEach(s => { s.matieres.forEach(m => { csv += `${y.cycle},${y.label},${s.nom},${m.nom},${m.cr},${m.note}\n`; }); }); });
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `releve_notes_${Date.now()}.csv`;
+            a.click();
+        }
+
+        function downloadPDF() {
+            const element = document.getElementById('releve-container');
+            const header = document.getElementById('pdf-header');
+            header.classList.remove('hidden');
+            const opt = { margin: 10, filename: `Releve_${localStorage.getItem('wt_user')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, backgroundColor: '#060912' }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+            html2pdf().set(opt).from(element).save().then(() => header.classList.add('hidden'));
+        }
+
+        function addUE(yId, sIdx) {
+            academicYears.find(y => y.id === yId).semestres[sIdx].matieres.push({ nom: "Nouvelle UE", cr: 3, note: "" });
+            renderUI();
+            saveData();
+        }
+
+        function removeUE(yId, sIdx, mIdx) {
+            academicYears.find(y => y.id === yId).semestres[sIdx].matieres.splice(mIdx, 1);
+            renderUI();
+            saveData();
+        }
+
+        function deleteYear(id) {
+            if(confirm("Supprimer cette année académique ?")) {
+                academicYears = academicYears.filter(y => y.id !== id);
+                renderUI();
+                saveData();
+            }
+        }
+
+        function saveData() { 
+            const user = localStorage.getItem('wt_user');
+            if(user) localStorage.setItem(`wt_data_${user}`, JSON.stringify(academicYears)); 
+        }
+
+        startApp();
+    </script>
+</body>
+</html>
